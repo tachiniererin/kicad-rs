@@ -8,4 +8,5 @@ edition = "2018"
 
 [dependencies]
 lexpr = {path = "crates/lexpr-rs/lexpr", version = "0.2.5"}
-serde = "1.0.116"
+serde = {version = "1.0.116", features = ["derive"]}
+serde-lexpr = {path = "crates/lexpr-rs/serde-lexpr", version = "0.1.0"}
