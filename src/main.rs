@@ -274,8 +274,8 @@ fn main() {
                 "net" => pcb.nets.push(parse_net(v)),
                 "net_class" => pcb.net_classes.push(parse_netclass(v)),
                 "module" => println!("module {:#?}", v[1]),
-                "segment" => println!("segment {:#?}", v[1]),
-                "via" => println!("via {:#?}", v[1]),
+                "segment" => pcb.segments.push(parse_segment(v)),
+                "via" => pcb.vias.push(parse_via(v)),
                 "dimension" => println!("dimension {:#?}", v[1]),
                 "gr_circle" => println!("gr_circle {:#?}", v[1]),
                 "gr_text" => println!("gr_text {:#?}", v[1]),
@@ -399,4 +399,55 @@ fn parse_netclass(v: Vec<lexpr::Value>) -> NetClass {
     }
 
     nc
+}
+
+fn parse_segment(v: Vec<lexpr::Value>) -> Segment {
+    let mut seg = Segment::default();
+
+    for value in v.iter(){
+        if value.is_symbol() {
+            continue;
+        }
+
+        let inner = value.to_vec().unwrap();
+        let label = sym_or_str(inner[0].clone());
+
+        match label.as_str() {
+            "start" => seg.start = (inner[1].as_f64().unwrap() as f32, inner[2].as_f64().unwrap() as f32),
+            "end" => seg.end = (inner[1].as_f64().unwrap() as f32, inner[2].as_f64().unwrap() as f32),
+            "width" => seg.width = inner[1].as_f64().unwrap() as f32,
+            "layer" => seg.layer = sym_or_str(inner[1].clone()),
+            "net" => seg.net = inner[1].as_u64().unwrap() as u32,
+            "tstamp" => seg.tstamp = inner[1].as_u64().unwrap() as u32,
+            _ => println!("unknown cons in net_class: {}", label),
+        }
+    }
+
+    seg
+}
+
+fn parse_via(v: Vec<lexpr::Value>) -> Via {
+    let mut via = Via::default();
+
+    for value in v.iter(){
+        if value.is_symbol() {
+            continue;
+        }
+
+        let inner = value.to_vec().unwrap();
+        let label = sym_or_str(inner[0].clone());
+
+        match label.as_str() {
+            "at" => via.at = (inner[1].as_f64().unwrap() as f32, inner[2].as_f64().unwrap() as f32),
+            "size" => via.size = inner[1].as_f64().unwrap() as f32,
+            "drill" => via.drill = inner[1].as_f64().unwrap() as f32,
+            "layers" => for l in inner[1..].iter() {
+                via.layers.push(sym_or_str(l.clone()));
+            },
+            "net" => via.net = inner[1].as_u64().unwrap() as u32,
+            _ => println!("unknown cons in net_class: {}", label),
+        }
+    }
+
+    via
 }
