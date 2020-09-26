@@ -46,6 +46,8 @@ struct Net {
 
 #[derive(Debug, Default, Clone)]
 struct NetClass {
+    name: String,
+    label: String,
     clearance: f32,
     trace_width: f32,
     diff_pair_width: f32,
@@ -269,8 +271,8 @@ fn main() {
                 "page" => pcb.page = v[1].as_symbol().unwrap().to_string(),
                 "layers" => pcb.layers = parse_layers(v),
                 "setup" => println!("setup {:#?}", v[1]),
-                "net" => println!("net {:#?}", v[1]),
-                "net_class" => println!("net_class {:#?}", v[1]),
+                "net" => pcb.nets.push(parse_net(v)),
+                "net_class" => pcb.net_classes.push(parse_netclass(v)),
                 "module" => println!("module {:#?}", v[1]),
                 "segment" => println!("segment {:#?}", v[1]),
                 "via" => println!("via {:#?}", v[1]),
@@ -343,4 +345,58 @@ fn parse_layers(v: Vec<lexpr::Value>) -> Vec<Layer> {
     }
 
     layers
+}
+
+fn parse_net(v: Vec<lexpr::Value>) -> Net {
+    let mut net = Net::default();
+
+    net.num = v[1].as_u64().unwrap() as u32;
+    if v[2].is_symbol() {
+        net.name = v[2].as_symbol().unwrap().to_string();
+    } else if v[2].is_string() {
+        net.name = v[2].as_str().unwrap().to_string();
+    }
+
+    net
+}
+
+fn sym_or_str(v: lexpr::Value) -> String {
+    if v.is_symbol() {
+        v.as_symbol().unwrap().to_string()
+    } else if v.is_string() {
+        v.as_str().unwrap().to_string()
+    } else {
+        String::new() // TODO: bugcheck
+    }
+}
+
+fn parse_netclass(v: Vec<lexpr::Value>) -> NetClass {
+    let mut nc = NetClass::default();
+
+    let mut it = v.iter();
+
+    it.next(); // throw away the first element which is just net_class
+
+    nc.name = it.next().unwrap().as_symbol().unwrap().to_string();
+    nc.label = it.next().unwrap().as_str().unwrap().to_string();
+    
+    for value in it{
+        let inner = value.to_vec().unwrap();
+        let label = sym_or_str(inner[0].clone());
+
+        match label.as_str() {
+            "add_net" => nc.nets.push(sym_or_str(inner[1].clone())),
+            "clearance" => nc.clearance = inner[1].as_f64().unwrap() as f32,
+            "trace_width" => nc.trace_width = inner[1].as_f64().unwrap() as f32,
+            "via_dia" => nc.via_dia = inner[1].as_f64().unwrap() as f32,
+            "via_drill" => nc.via_drill = inner[1].as_f64().unwrap() as f32,
+            "uvia_dia" => nc.uvia_dia = inner[1].as_f64().unwrap() as f32,
+            "uvia_drill" => nc.uvia_drill = inner[1].as_f64().unwrap() as f32,
+            "diff_pair_width" => nc.diff_pair_width = inner[1].as_f64().unwrap() as f32,
+            "diff_pair_gap" => nc.diff_pair_gap = inner[1].as_f64().unwrap() as f32,
+            _ => println!("unknown cons in net_class: {}", label),
+        }
+    }
+
+    nc
 }
