@@ -64,13 +64,14 @@ struct Font {
 #[derive(Debug, Default, Clone)]
 struct Effects {
     font: Font,
+    justify: String,
 }
 
 #[derive(Debug, Default, Clone)]
 struct FootprintText {
     typ: String,
     value: String,
-    at: (f32, f32, f32),
+    at: Vec<f32>,
     layer: String,
     hide: bool,
     effects: Effects,
@@ -87,14 +88,31 @@ struct FootprintLine {
 }
 
 #[derive(Debug, Default, Clone)]
+struct FootprintArc {
+    start: (f32, f32),
+    end: (f32, f32),
+    angle: f32,
+    layer: String,
+    width: f32,
+}
+
+#[derive(Debug, Default, Clone)]
+struct FootprintCircle {
+    center: (f32, f32),
+    end: (f32, f32),
+    layer: String,
+    width: f32,
+}
+
+#[derive(Debug, Default, Clone)]
 struct Pad {
     num: String,      // can be int or string (e.g. for BGAs)
     pad_type: String, // smd, thr, tht
     typ: String,      // roundrect, rect, circle
-    at: (f32, f32, f32),
-    size: (f32, f32),
+    at: Vec<f32>,
+    size: Vec<f32>,
     layers: Vec<String>,
-    roundrect_rration: f32,
+    roundrect_rratio: f32,
     net: Net,
     drill: f32,
     drill_oval: (f32, f32),
@@ -104,8 +122,8 @@ struct Pad {
 struct Model {
     path: String,
     at: Vec<f32>, // TODO: other coordinate systems than xyz???
-    scale: (f32, f32, f32),
-    rotate: (f32, f32, f32),
+    scale: Vec<f32>,
+    rotate: Vec<f32>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -119,8 +137,10 @@ struct Module {
     tags: String,
     path: String,
     attr: String,
-    fp_text: Vec<FootprintText>,
-    fp_line: Vec<FootprintLine>,
+    fp_texts: Vec<FootprintText>,
+	fp_lines: Vec<FootprintLine>,
+	fp_arcs: Vec<FootprintArc>,
+	fp_circles: Vec<FootprintCircle>,
     pads: Vec<Pad>,
     models: Vec<Model>,
 }
@@ -130,7 +150,8 @@ struct GrText {
     label: String,
     at: Vec<f32>,
     layer: String,
-    effects: Effects,
+	effects: Effects,
+	tstamp: u32,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -216,7 +237,7 @@ struct ZoneFill {
 struct Zone {
     net: u32,
     net_name: String,
-    layer: String,
+    layers: Vec<String>,
     tstamp: u32,
     priority: u8,
     hatch: (String, f32),
@@ -275,7 +296,7 @@ fn main() {
                 "setup" => println!("setup {:#?}", v[1]),
                 "net" => pcb.nets.push(parse_net(v)),
                 "net_class" => pcb.net_classes.push(parse_netclass(v)),
-                "module" => println!("module {:#?}", v[1]),
+                "module" => pcb.modules.push(parse_module(v)),
                 "segment" => pcb.segments.push(parse_segment(v)),
                 "via" => pcb.vias.push(parse_via(v)),
                 "dimension" => pcb.dimensions.push(parse_dimension(v)),
@@ -291,7 +312,7 @@ fn main() {
         }
     }
 
-    println!("{:#?}", pcb);
+    // println!("{:#?}", pcb);
 }
 
 fn parse_general(v: Vec<lexpr::Value>) -> General {
@@ -365,18 +386,25 @@ fn parse_net(v: Vec<lexpr::Value>) -> Net {
     net
 }
 
-fn sym_or_str(v: lexpr::Value) -> String {
-    if v.is_symbol() {
-        v.as_symbol().unwrap().to_string()
-    } else if v.is_string() {
-        v.as_str().unwrap().to_string()
-    } else {
-        String::new() // TODO: bugcheck
+fn sym_or_str(v: Option<&lexpr::Value>) -> String {
+    match v {
+        None => String::new(),
+        Some(e) => {
+            if e.is_symbol() {
+                e.as_symbol().unwrap().to_string()
+            } else if e.is_string() {
+                e.as_str().unwrap().to_string()
+            } else {
+                String::new() // TODO: bugcheck
+            }
+        }
     }
 }
 
-fn parse_at(ev: Vec<lexpr::Value>) -> Vec<f32> {
-    if ev.len() == 3 {
+fn parse_vecf(ev: Vec<lexpr::Value>) -> Vec<f32> {
+    if ev.len() == 2 {
+        return vec![ev[1].as_f64().unwrap() as f32];
+    } else if ev.len() == 3 {
         return vec![
             ev[1].as_f64().unwrap() as f32,
             ev[2].as_f64().unwrap() as f32,
@@ -401,10 +429,10 @@ fn parse_netclass(v: Vec<lexpr::Value>) -> NetClass {
 
     for value in it {
         let inner = value.to_vec().unwrap();
-        let label = sym_or_str(inner[0].clone());
+        let label = sym_or_str(value.get(0));
 
         match label.as_str() {
-            "add_net" => nc.nets.push(sym_or_str(inner[1].clone())),
+            "add_net" => nc.nets.push(sym_or_str(value.get(1))),
             "clearance" => nc.clearance = inner[1].as_f64().unwrap() as f32,
             "trace_width" => nc.trace_width = inner[1].as_f64().unwrap() as f32,
             "via_dia" => nc.via_dia = inner[1].as_f64().unwrap() as f32,
@@ -413,7 +441,7 @@ fn parse_netclass(v: Vec<lexpr::Value>) -> NetClass {
             "uvia_drill" => nc.uvia_drill = inner[1].as_f64().unwrap() as f32,
             "diff_pair_width" => nc.diff_pair_width = inner[1].as_f64().unwrap() as f32,
             "diff_pair_gap" => nc.diff_pair_gap = inner[1].as_f64().unwrap() as f32,
-            _ => println!("unknown cons in net_class: {}", label),
+            _ => println!("unknown cons in net_class: {:#?}", value),
         }
     }
 
@@ -428,27 +456,33 @@ fn parse_segment(v: Vec<lexpr::Value>) -> Segment {
             continue;
         }
 
-        let inner = value.to_vec().unwrap();
-        let label = sym_or_str(inner[0].clone());
+		let mut ev = value.to_vec().unwrap();
+		
+		// TODO: fix tstamp handling in lexpr
+		if ev[0].is_cons() {
+			ev = ev[0].to_vec().unwrap()
+		}
+
+        let label = sym_or_str(ev.get(0));
 
         match label.as_str() {
             "start" => {
                 seg.start = (
-                    inner[1].as_f64().unwrap() as f32,
-                    inner[2].as_f64().unwrap() as f32,
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
                 )
             }
             "end" => {
                 seg.end = (
-                    inner[1].as_f64().unwrap() as f32,
-                    inner[2].as_f64().unwrap() as f32,
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
                 )
             }
-            "width" => seg.width = inner[1].as_f64().unwrap() as f32,
-            "layer" => seg.layer = sym_or_str(inner[1].clone()),
-            "net" => seg.net = inner[1].as_u64().unwrap() as u32,
-            "tstamp" => seg.tstamp = inner[1].as_u64().unwrap() as u32,
-            _ => println!("unknown cons in net_class: {}", label),
+            "width" => seg.width = ev[1].as_f64().unwrap() as f32,
+            "layer" => seg.layer = sym_or_str(ev.get(1)),
+            "net" => seg.net = ev[1].as_u64().unwrap() as u32,
+            "tstamp" => seg.tstamp = ev[1].as_u64().unwrap() as u32,
+            _ => println!("unknown cons in segment: {:#?}", value),
         }
     }
 
@@ -463,25 +497,32 @@ fn parse_via(v: Vec<lexpr::Value>) -> Via {
             continue;
         }
 
-        let inner = value.to_vec().unwrap();
-        let label = sym_or_str(inner[0].clone());
+		let mut ev = value.to_vec().unwrap();
+		
+		// TODO: fix tstamp handling in lexpr
+		if ev[0].is_cons() {
+			ev = ev[0].to_vec().unwrap()
+		}
+
+        let label = ev[0].to_string();
 
         match label.as_str() {
             "at" => {
                 via.at = (
-                    inner[1].as_f64().unwrap() as f32,
-                    inner[2].as_f64().unwrap() as f32,
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
                 )
             }
-            "size" => via.size = inner[1].as_f64().unwrap() as f32,
-            "drill" => via.drill = inner[1].as_f64().unwrap() as f32,
+            "size" => via.size = ev[1].as_f64().unwrap() as f32,
+            "drill" => via.drill = ev[1].as_f64().unwrap() as f32,
             "layers" => {
-                for l in inner[1..].iter() {
-                    via.layers.push(sym_or_str(l.clone()));
+                for l in ev[1..].iter() {
+                    via.layers.push(l.as_symbol().unwrap().to_string());
                 }
             }
-            "net" => via.net = inner[1].as_u64().unwrap() as u32,
-            _ => println!("unknown cons in net_class: {}", label),
+			"net" => via.net = ev[1].as_u64().unwrap() as u32,
+			"tstamp" => via.tstamp = ev[1].as_u64().unwrap() as u32,
+            _ => println!("unknown cons in via: {:#?}", value),
         }
     }
 
@@ -514,17 +555,25 @@ fn parse_gr_text(v: Vec<lexpr::Value>) -> GrText {
 
     for elem in v.iter() {
         if !elem.is_cons() {
+            grt.label = sym_or_str(elem.get(0));
             continue;
         }
 
-        let ev = elem.to_vec().unwrap();
-        let label = sym_or_str(ev[0].clone());
+		let mut ev = elem.to_vec().unwrap();
+		
+		// TODO: fix tstamp handling in lexpr
+		if ev[0].is_cons() {
+			ev = ev[0].to_vec().unwrap()
+		}
+
+        let label = ev[0].to_string();
 
         match label.as_str() {
-            "at" => grt.at = parse_at(ev),
-            "layer" => grt.layer = sym_or_str(ev[1].clone()),
-            "effects" => grt.effects = parse_effects(ev),
-            _ => println!("unknown cons in gr_text: {}", label),
+            "at" => grt.at = parse_vecf(ev),
+            "layer" => grt.layer = sym_or_str(elem.get(1)),
+			"effects" => grt.effects = parse_effects(ev),
+			"tstamp" => grt.tstamp = ev[1].as_u64().unwrap() as u32,
+            _ => println!("unknown cons in gr_text: {:#?}", elem),
         }
     }
 
@@ -539,8 +588,14 @@ fn parse_gr_circle(v: Vec<lexpr::Value>) -> GrCircle {
             continue;
         }
 
-        let ev = elem.to_vec().unwrap();
-        let label = sym_or_str(ev[0].clone());
+		let mut ev = elem.to_vec().unwrap();
+		
+		// TODO: fix tstamp handling in lexpr
+		if ev[0].is_cons() {
+			ev = ev[0].to_vec().unwrap()
+		}
+
+        let label = ev[0].to_string();
 
         match label.as_str() {
             "center" => {
@@ -555,10 +610,10 @@ fn parse_gr_circle(v: Vec<lexpr::Value>) -> GrCircle {
                     ev[2].as_f64().unwrap() as f32,
                 )
             }
-            "layer" => grc.layer = sym_or_str(ev[1].clone()),
+            "layer" => grc.layer = sym_or_str(elem.get(1)),
             "width" => grc.width = ev[1].as_f64().unwrap() as f32,
             "tstamp" => grc.tstamp = ev[1].as_u64().unwrap() as u32,
-            _ => println!("unknown cons in gr_circle: {}", label),
+            _ => println!("unknown cons in gr_circle: {} {:#?}", label, elem),
         }
     }
 
@@ -573,8 +628,14 @@ fn parse_gr_line(v: Vec<lexpr::Value>) -> GrLine {
             continue;
         }
 
-        let ev = elem.to_vec().unwrap();
-        let label = sym_or_str(ev[0].clone());
+		let mut ev = elem.to_vec().unwrap();
+		
+		// TODO: fix tstamp handling in lexpr
+		if ev[0].is_cons() {
+			ev = ev[0].to_vec().unwrap()
+		}
+
+		let label = ev[0].to_string();
 
         match label.as_str() {
             "start" => {
@@ -589,10 +650,10 @@ fn parse_gr_line(v: Vec<lexpr::Value>) -> GrLine {
                     ev[2].as_f64().unwrap() as f32,
                 )
             }
-            "layer" => grl.layer = sym_or_str(ev[1].clone()),
+            "layer" => grl.layer = sym_or_str(elem.get(1)),
             "width" => grl.width = ev[1].as_f64().unwrap() as f32,
             "tstamp" => grl.tstamp = ev[1].as_u64().unwrap() as u32,
-            _ => println!("unknown cons in gr_line: {}", label),
+            _ => println!("unknown cons in gr_line: {:#?}", elem),
         }
     }
 
@@ -607,8 +668,14 @@ fn parse_gr_arc(v: Vec<lexpr::Value>) -> GrArc {
             continue;
         }
 
-        let ev = elem.to_vec().unwrap();
-        let label = sym_or_str(ev[0].clone());
+        let mut ev = elem.to_vec().unwrap();
+		
+		// TODO: fix tstamp handling in lexpr
+		if ev[0].is_cons() {
+			ev = ev[0].to_vec().unwrap()
+		}
+
+		let label = ev[0].to_string();
 
         match label.as_str() {
             "start" => {
@@ -624,10 +691,10 @@ fn parse_gr_arc(v: Vec<lexpr::Value>) -> GrArc {
                 )
             }
             "angle" => gra.angle = ev[1].as_f64().unwrap() as f32,
-            "layer" => gra.layer = sym_or_str(ev[1].clone()),
+            "layer" => gra.layer = sym_or_str(elem.get(1)),
             "width" => gra.width = ev[1].as_f64().unwrap() as f32,
             "tstamp" => gra.tstamp = ev[1].as_u64().unwrap() as u32,
-            _ => println!("unknown cons in gr_circle: {}", label),
+            _ => println!("unknown cons in gr_arc: {:#?}", elem),
         }
     }
 
@@ -646,7 +713,8 @@ fn parse_effects(v: Vec<lexpr::Value>) -> Effects {
 
         match label {
             "font" => eff.font = parse_font(ev),
-            _ => println!("unknown cons in effects: {}", label),
+            "justify" => eff.justify = sym_or_str(elem.get(1)),
+            _ => println!("unknown cons in effects: {:#?}", elem),
         }
     }
 
@@ -671,7 +739,7 @@ fn parse_font(v: Vec<lexpr::Value>) -> Font {
                 )
             }
             "thickness" => fnt.thickness = ev[1].as_f64().unwrap() as f32,
-            _ => println!("unknown cons in font: {}", label),
+            _ => println!("unknown cons in font: {:#?}", elem),
         }
     }
 
@@ -692,7 +760,7 @@ fn parse_dimension(v: Vec<lexpr::Value>) -> Dimension {
 
             match label {
                 "width" => dim.width = ev[1].as_f64().unwrap() as f32,
-                "layer" => dim.layer = sym_or_str(ev[1].clone()),
+                "layer" => dim.layer = sym_or_str(elem.get(1)),
                 "gr_text" => dim.text = parse_gr_text(ev),
                 "feature1" => dim.feature1 = parse_pts(ev[1].to_vec().unwrap()),
                 "feature2" => dim.feature2 = parse_pts(ev[1].to_vec().unwrap()),
@@ -701,7 +769,7 @@ fn parse_dimension(v: Vec<lexpr::Value>) -> Dimension {
                 "arrow1b" => dim.arrow1b = parse_pts(ev[1].to_vec().unwrap()),
                 "arrow2a" => dim.arrow1a = parse_pts(ev[1].to_vec().unwrap()),
                 "arrow2b" => dim.arrow1b = parse_pts(ev[1].to_vec().unwrap()),
-                _ => println!("unknown cons in dimension: {}", label),
+                _ => println!("unknown cons in dimension: {:#?}", elem),
             }
         }
     }
@@ -716,13 +784,24 @@ fn parse_zone(v: Vec<lexpr::Value>) -> Zone {
         if elem.is_symbol() {
             continue;
         }
-        let ev = elem.to_vec().unwrap();
-        let label = sym_or_str(ev[0].clone());
+		let mut ev = elem.to_vec().unwrap();
+		
+		// TODO: fix tstamp handling in lexpr
+		if ev[0].is_cons() {
+			ev = ev[0].to_vec().unwrap()
+		}
+
+		let label = ev[0].to_string();
 
         match label.as_str() {
             "net" => zone.net = ev[1].as_u64().unwrap() as u32,
-            "net_name" => zone.net_name = sym_or_str(ev[1].clone()),
-            "layer" => zone.layer = sym_or_str(ev[1].clone()),
+            "net_name" => zone.net_name = sym_or_str(elem.get(1)),
+			"layer" => zone.layers.push(ev[1].to_string()),
+			"layers" => {
+                for l in ev[1..].iter() {
+                    zone.layers.push(l.to_string())
+                }
+            },
             "tstamp" => zone.tstamp = ev[1].as_u64().unwrap() as u32,
             "hatch" => {
                 zone.hatch = (
@@ -742,7 +821,7 @@ fn parse_zone(v: Vec<lexpr::Value>) -> Zone {
                 filled: false,
                 points: parse_pts(ev[1].to_vec().unwrap()),
             }),
-            _ => println!("unknown cons in dimension: {}", label),
+            _ => println!("unknown cons in zone: {} {:#?}", label, elem),
         }
     }
 
@@ -750,7 +829,7 @@ fn parse_zone(v: Vec<lexpr::Value>) -> Zone {
 }
 
 fn parse_connect_pads(v: Vec<lexpr::Value>) -> (String, f32) {
-    let s = sym_or_str(v[1].clone());
+    let s = sym_or_str(v.get(1));
     if s.as_str() == "yes" {
         let clearance = v[2].to_vec().unwrap()[1].as_f64().unwrap() as f32;
         return (s, clearance);
@@ -773,7 +852,7 @@ fn parse_fill(v: Vec<lexpr::Value>) -> ZoneFill {
         };
 
         let ev = elem.to_vec().unwrap();
-        let label = sym_or_str(ev[0].clone());
+        let label = ev[0].to_string();
 
         match label.as_str() {
             "arc_segments" => fill.arc_segments = ev[1].as_u64().unwrap() as u8,
@@ -781,9 +860,235 @@ fn parse_fill(v: Vec<lexpr::Value>) -> ZoneFill {
             "thermal_bridge_width" => fill.thermal_bridge_width = ev[1].as_f64().unwrap() as f32,
             "smoothing" => fill.smoothing = ev[1].as_symbol().unwrap().to_string(),
             "radius" => fill.radius = ev[1].as_f64().unwrap() as f32,
-            _ => println!("unknown cons in gr_line: {}", label),
+            _ => println!("unknown cons in fill: {:#?}", elem),
         }
     }
 
     fill
+}
+
+fn parse_fp_text(v: Vec<lexpr::Value>) -> FootprintText {
+    let mut fpt = FootprintText::default();
+
+    fpt.typ = sym_or_str(v.get(1));
+    fpt.value = sym_or_str(v.get(2));
+
+    for elem in v[3..].iter() {
+        if elem.is_symbol() {
+            fpt.hide = if elem.as_symbol().unwrap() == "hide" {
+                true
+            } else {
+                false
+            };
+            continue;
+        }
+
+        let ev = elem.to_vec().unwrap();
+        let label = ev[0].to_string();
+
+        match label.as_str() {
+            "at" => fpt.at = parse_vecf(ev),
+            "layer" => fpt.layer = sym_or_str(elem.get(1)),
+            "effects" => fpt.effects = parse_effects(ev),
+            _ => println!("unknown cons in fp_text: {:#?}", elem),
+        }
+    }
+
+    fpt
+}
+
+fn parse_fp_line(v: Vec<lexpr::Value>) -> FootprintLine {
+    let mut fpl = FootprintLine::default();
+
+    for elem in v[1..].iter() {
+        let ev = elem.to_vec().unwrap();
+        let label = ev[0].to_string();
+
+        match label.as_str() {
+            "start" => {
+                fpl.start = (
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
+                )
+            }
+            "end" => {
+                fpl.end = (
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
+                )
+            }
+            "layer" => fpl.layer = sym_or_str(elem.get(1)),
+            "width" => fpl.width = ev[1].as_f64().unwrap() as f32,
+            _ => println!("unknown cons in fp_line: {:#?}", elem),
+        }
+    }
+
+    fpl
+}
+
+fn parse_fp_arc(v: Vec<lexpr::Value>) -> FootprintArc {
+    let mut fpa = FootprintArc::default();
+
+    for elem in v.iter() {
+        if !elem.is_cons() {
+            continue;
+        }
+
+        let ev = elem.to_vec().unwrap();
+        let label = sym_or_str(elem.get(0));
+
+        match label.as_str() {
+            "start" => {
+                fpa.start = (
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
+                )
+            }
+            "end" => {
+                fpa.end = (
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
+                )
+            }
+            "angle" => fpa.angle = ev[1].as_f64().unwrap() as f32,
+            "layer" => fpa.layer = sym_or_str(elem.get(1)),
+            "width" => fpa.width = ev[1].as_f64().unwrap() as f32,
+            _ => println!("unknown cons in fp_arc: {:#?}", elem),
+        }
+    }
+
+    fpa
+}
+
+fn parse_fp_circle(v: Vec<lexpr::Value>) -> FootprintCircle {
+    let mut fpc = FootprintCircle::default();
+
+    for elem in v.iter() {
+        if !elem.is_cons() {
+            continue;
+        }
+
+        let ev = elem.to_vec().unwrap();
+        let label = sym_or_str(elem.get(0));
+
+        match label.as_str() {
+            "center" => {
+                fpc.center = (
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
+                )
+            }
+            "end" => {
+                fpc.end = (
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
+                )
+            }
+            "layer" => fpc.layer = sym_or_str(elem.get(1)),
+            "width" => fpc.width = ev[1].as_f64().unwrap() as f32,
+            _ => println!("unknown cons in fp_circle: {:#?}", elem),
+        }
+    }
+
+    fpc
+}
+
+fn parse_model(v: Vec<lexpr::Value>) -> Model {
+    let mut model = Model::default();
+
+    model.path = sym_or_str(v.get(1));
+
+    for elem in v[2..].iter() {
+        let ev = elem.to_vec().unwrap();
+        let label = ev[0].to_string();
+
+        match label.as_str() {
+            "at" => model.at = parse_vecf(ev[1].to_vec().unwrap()),
+            "scale" => model.scale = parse_vecf(ev[1].to_vec().unwrap()),
+            "rotate" => model.rotate = parse_vecf(ev[1].to_vec().unwrap()),
+            _ => println!("unknown cons in model: {:#?}", elem),
+        }
+    }
+
+    model
+}
+
+fn parse_pad(v: Vec<lexpr::Value>) -> Pad {
+    let mut pad = Pad::default();
+
+    pad.num = sym_or_str(v.get(1)).to_string();
+    pad.pad_type = sym_or_str(v.get(2)).to_string();
+    pad.typ = sym_or_str(v.get(3)).to_string();
+
+    for elem in v[4..].iter() {
+        let ev = elem.to_vec().unwrap();
+        let label = ev[0].to_string();
+
+        match label.as_str() {
+            "at" => pad.at = parse_vecf(ev),
+            "size" => pad.size = parse_vecf(ev),
+            "layers" => {
+                for l in ev[1..].iter() {
+                    pad.layers.push(l.as_symbol().unwrap().to_string())
+                }
+            }
+            "drill" => {
+                if ev[1].is_symbol() {
+                    if ev[1].as_symbol().unwrap() == "oval" {
+                        pad.drill_oval = (
+                            ev[2].as_f64().unwrap() as f32,
+                            ev[3].as_f64().unwrap() as f32,
+                        )
+                    }
+                } else {
+                    pad.drill = ev[1].as_f64().unwrap() as f32
+                }
+            }
+            "net" => pad.net = parse_net(ev),
+            "roundrect_rratio" => pad.roundrect_rratio = ev[1].as_f64().unwrap() as f32,
+            _ => println!("unknown cons in pad: {:#?}", elem),
+        }
+    }
+
+    pad
+}
+
+fn parse_module(v: Vec<lexpr::Value>) -> Module {
+    let mut module = Module::default();
+    let mut it = v.iter();
+
+    it.next(); // advance to the symbol after "module"
+
+    module.name = sym_or_str(it.next());
+
+    for elem in it {
+		let mut ev = elem.to_vec().unwrap();
+		
+		// TODO: fix tstamp handling in lexpr
+		if ev[0].is_cons() {
+			ev = ev[0].to_vec().unwrap()
+		}
+
+		let label = ev[0].to_string();
+
+        match label.as_str() {
+            "layer" => module.layer = sym_or_str(elem.get(1)),
+            "tstamp" => module.tstamp = ev[1].as_u64().unwrap() as u32,
+            "tedit" => module.tedit = ev[1].as_u64().unwrap() as u32,
+            "at" => module.at = parse_vecf(ev),
+            "descr" => module.layer = sym_or_str(elem.get(1)),
+            "tags" => module.tags = sym_or_str(elem.get(1)),
+            "path" => module.path = sym_or_str(elem.get(1)),
+            "attr" => module.attr = sym_or_str(elem.get(1)),
+            "fp_text" => module.fp_texts.push(parse_fp_text(ev)),
+			"fp_line" => module.fp_lines.push(parse_fp_line(ev)),
+			"fp_arc" => module.fp_arcs.push(parse_fp_arc(ev)),
+			"fp_circle" => module.fp_circles.push(parse_fp_circle(ev)),
+            "pad" => module.pads.push(parse_pad(ev)),
+            "model" => module.models.push(parse_model(ev)),
+            _ => println!("unknown cons in module: {} {:#?}", label, ev),
+        }
+    }
+
+    module
 }
