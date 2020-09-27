@@ -451,3 +451,24 @@ fn parse_via(v: Vec<lexpr::Value>) -> Via {
 
     via
 }
+
+fn parse_pts(v: Vec<lexpr::Value>) -> Vec<Point> {
+    let mut points = Vec::new();
+    
+    for value in v {
+        // first value is a symbol
+        if value.is_symbol() {
+            continue;
+        }
+
+        let p = value.to_vec().unwrap();
+
+        // TODO: check for other coordinate system types than xy
+
+        let l = (p[1].as_f64().unwrap() as f32, p[2].as_f64().unwrap() as f32);
+
+        points.push(l);
+    }
+
+    points
+}
