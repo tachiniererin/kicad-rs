@@ -115,7 +115,8 @@ struct Pad {
     roundrect_rratio: f32,
     net: Net,
     drill: f32,
-    drill_oval: (f32, f32),
+	drill_oval: (f32, f32),
+	zone_connect: u8,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -141,6 +142,7 @@ struct Module {
 	fp_lines: Vec<FootprintLine>,
 	fp_arcs: Vec<FootprintArc>,
 	fp_circles: Vec<FootprintCircle>,
+	fp_polys: Vec<FootprintPoly>,
     pads: Vec<Pad>,
     models: Vec<Model>,
 }
@@ -221,6 +223,13 @@ struct Dimension {
 struct Polygon {
     points: Vec<Point>,
     filled: bool,
+}
+
+#[derive(Debug, Default, Clone)]
+struct FootprintPoly {
+    points: Vec<Point>,
+	layer: String,
+	width: f32,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -993,6 +1002,28 @@ fn parse_fp_circle(v: Vec<lexpr::Value>) -> FootprintCircle {
     fpc
 }
 
+fn parse_fp_poly(v: Vec<lexpr::Value>) -> FootprintPoly {
+    let mut fpp = FootprintPoly::default();
+
+    for elem in v.iter() {
+        if !elem.is_cons() {
+            continue;
+        }
+
+        let ev = elem.to_vec().unwrap();
+        let label = ev[0].to_string();
+
+        match label.as_str() {
+            "pts" => fpp.points = parse_pts(ev),
+            "layer" => fpp.layer = sym_or_str(elem.get(1)),
+            "width" => fpp.width = ev[1].as_f64().unwrap() as f32,
+            _ => println!("unknown cons in fp_arc: {:#?}", elem),
+        }
+    }
+
+    fpp
+}
+
 fn parse_model(v: Vec<lexpr::Value>) -> Model {
     let mut model = Model::default();
 
@@ -1045,7 +1076,8 @@ fn parse_pad(v: Vec<lexpr::Value>) -> Pad {
                 }
             }
             "net" => pad.net = parse_net(ev),
-            "roundrect_rratio" => pad.roundrect_rratio = ev[1].as_f64().unwrap() as f32,
+			"roundrect_rratio" => pad.roundrect_rratio = ev[1].as_f64().unwrap() as f32,
+			"zone_connect" => pad.zone_connect = ev[1].as_u64().unwrap() as u8,
             _ => println!("unknown cons in pad: {:#?}", elem),
         }
     }
@@ -1084,6 +1116,7 @@ fn parse_module(v: Vec<lexpr::Value>) -> Module {
 			"fp_line" => module.fp_lines.push(parse_fp_line(ev)),
 			"fp_arc" => module.fp_arcs.push(parse_fp_arc(ev)),
 			"fp_circle" => module.fp_circles.push(parse_fp_circle(ev)),
+			"fp_poly" => module.fp_polys.push(parse_fp_poly(ev)),
             "pad" => module.pads.push(parse_pad(ev)),
             "model" => module.models.push(parse_model(ev)),
             _ => println!("unknown cons in module: {} {:#?}", label, ev),
