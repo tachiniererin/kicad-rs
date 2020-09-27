@@ -28,14 +28,10 @@ struct Layer {
 }
 
 #[derive(Debug, Default, Clone)]
-struct PCBPlotParams {
-
-}
+struct PCBPlotParams {}
 
 #[derive(Debug, Default, Clone)]
-struct Setup {
-    
-}
+struct Setup {}
 
 #[derive(Debug, Default, Clone)]
 // Net declarations
@@ -60,9 +56,14 @@ struct NetClass {
 }
 
 #[derive(Debug, Default, Clone)]
-struct Effects {
-    font_size: (f32, f32),
+struct Font {
+    size: (f32, f32),
     thickness: f32,
+}
+
+#[derive(Debug, Default, Clone)]
+struct Effects {
+    font: Font,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -87,9 +88,9 @@ struct FootprintLine {
 
 #[derive(Debug, Default, Clone)]
 struct Pad {
-    num: String, // can be int or string (e.g. for BGAs)
+    num: String,      // can be int or string (e.g. for BGAs)
     pad_type: String, // smd, thr, tht
-    typ: String, // roundrect, rect, circle
+    typ: String,      // roundrect, rect, circle
     at: (f32, f32, f32),
     size: (f32, f32),
     layers: Vec<String>,
@@ -102,7 +103,7 @@ struct Pad {
 #[derive(Debug, Default, Clone)]
 struct Model {
     path: String,
-    at: (f32, f32, f32), // TODO: other coordinate systems than xyz???
+    at: Vec<f32>, // TODO: other coordinate systems than xyz???
     scale: (f32, f32, f32),
     rotate: (f32, f32, f32),
 }
@@ -113,7 +114,7 @@ struct Module {
     layer: String,
     tedit: u32,
     tstamp: u32,
-    at: (f32, f32, f32),
+    at: Vec<f32>,
     descr: String,
     tags: String,
     path: String,
@@ -127,7 +128,7 @@ struct Module {
 #[derive(Debug, Default, Clone)]
 struct GrText {
     label: String,
-    at: (f32, f32),
+    at: Vec<f32>,
     layer: String,
     effects: Effects,
 }
@@ -188,6 +189,7 @@ struct Dimension {
     text: GrText,
     feature1: Vec<Point>,
     feature2: Vec<Point>,
+    crossbar: Vec<Point>,
     arrow1a: Vec<Point>,
     arrow1b: Vec<Point>,
     arrow2a: Vec<Point>,
@@ -202,11 +204,12 @@ struct Polygon {
 
 #[derive(Debug, Default, Clone)]
 struct ZoneFill {
+    do_fill: bool,
     arc_segments: u8,
     thermal_gap: f32,
     thermal_bridge_width: f32,
     smoothing: String,
-    radius: u8,
+    radius: f32,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -219,7 +222,6 @@ struct Zone {
     hatch: (String, f32),
     connect_pads: (String, f32), // TODO: fix this
     min_thickness: f32,
-    fill_zone: bool,
     fill: ZoneFill,
     polygons: Vec<Polygon>,
 }
@@ -276,12 +278,12 @@ fn main() {
                 "module" => println!("module {:#?}", v[1]),
                 "segment" => pcb.segments.push(parse_segment(v)),
                 "via" => pcb.vias.push(parse_via(v)),
-                "dimension" => println!("dimension {:#?}", v[1]),
-                "gr_circle" => println!("gr_circle {:#?}", v[1]),
-                "gr_text" => println!("gr_text {:#?}", v[1]),
-                "gr_line" => println!("gr_line {:#?}", v[1]),
-                "gr_arc" => println!("gr_arc {:#?}", v[1]),
-                "zone" => println!("zone {:#?}", v[1]),
+                "dimension" => pcb.dimensions.push(parse_dimension(v)),
+                "gr_circle" => pcb.gr_circles.push(parse_gr_circle(v)),
+                "gr_text" => pcb.gr_texts.push(parse_gr_text(v)),
+                "gr_line" => pcb.gr_lines.push(parse_gr_line(v)),
+                "gr_arc" => pcb.gr_arcs.push(parse_gr_arc(v)),
+                "zone" => pcb.zones.push(parse_zone(v)),
                 _ => println!("uwu, what is this? {}", name),
             }
         } else {
@@ -294,7 +296,7 @@ fn main() {
 
 fn parse_general(v: Vec<lexpr::Value>) -> General {
     let mut g = General::default();
-    
+
     for value in v {
         // first value is a symbol
         if value.is_symbol() {
@@ -318,7 +320,7 @@ fn parse_general(v: Vec<lexpr::Value>) -> General {
 
 fn parse_layers(v: Vec<lexpr::Value>) -> Vec<Layer> {
     let mut layers = Vec::new();
-    
+
     for value in v {
         // first value is a symbol
         if value.is_symbol() {
@@ -337,7 +339,10 @@ fn parse_layers(v: Vec<lexpr::Value>) -> Vec<Layer> {
             if hidden == "hide" {
                 l.hidden = true
             } else {
-                println!("while parsing layer definitions: got {} instead of hide", hidden)
+                println!(
+                    "while parsing layer definitions: got {} instead of hide",
+                    hidden
+                )
             }
         }
 
@@ -370,6 +375,20 @@ fn sym_or_str(v: lexpr::Value) -> String {
     }
 }
 
+fn parse_at(ev: Vec<lexpr::Value>) -> Vec<f32> {
+    if ev.len() == 3 {
+        return vec![
+            ev[1].as_f64().unwrap() as f32,
+            ev[2].as_f64().unwrap() as f32,
+        ];
+    }
+    return vec![
+        ev[1].as_f64().unwrap() as f32,
+        ev[2].as_f64().unwrap() as f32,
+        ev[3].as_f64().unwrap() as f32,
+    ];
+}
+
 fn parse_netclass(v: Vec<lexpr::Value>) -> NetClass {
     let mut nc = NetClass::default();
 
@@ -379,8 +398,8 @@ fn parse_netclass(v: Vec<lexpr::Value>) -> NetClass {
 
     nc.name = it.next().unwrap().as_symbol().unwrap().to_string();
     nc.label = it.next().unwrap().as_str().unwrap().to_string();
-    
-    for value in it{
+
+    for value in it {
         let inner = value.to_vec().unwrap();
         let label = sym_or_str(inner[0].clone());
 
@@ -404,7 +423,7 @@ fn parse_netclass(v: Vec<lexpr::Value>) -> NetClass {
 fn parse_segment(v: Vec<lexpr::Value>) -> Segment {
     let mut seg = Segment::default();
 
-    for value in v.iter(){
+    for value in v.iter() {
         if value.is_symbol() {
             continue;
         }
@@ -413,8 +432,18 @@ fn parse_segment(v: Vec<lexpr::Value>) -> Segment {
         let label = sym_or_str(inner[0].clone());
 
         match label.as_str() {
-            "start" => seg.start = (inner[1].as_f64().unwrap() as f32, inner[2].as_f64().unwrap() as f32),
-            "end" => seg.end = (inner[1].as_f64().unwrap() as f32, inner[2].as_f64().unwrap() as f32),
+            "start" => {
+                seg.start = (
+                    inner[1].as_f64().unwrap() as f32,
+                    inner[2].as_f64().unwrap() as f32,
+                )
+            }
+            "end" => {
+                seg.end = (
+                    inner[1].as_f64().unwrap() as f32,
+                    inner[2].as_f64().unwrap() as f32,
+                )
+            }
             "width" => seg.width = inner[1].as_f64().unwrap() as f32,
             "layer" => seg.layer = sym_or_str(inner[1].clone()),
             "net" => seg.net = inner[1].as_u64().unwrap() as u32,
@@ -429,7 +458,7 @@ fn parse_segment(v: Vec<lexpr::Value>) -> Segment {
 fn parse_via(v: Vec<lexpr::Value>) -> Via {
     let mut via = Via::default();
 
-    for value in v.iter(){
+    for value in v.iter() {
         if value.is_symbol() {
             continue;
         }
@@ -438,12 +467,19 @@ fn parse_via(v: Vec<lexpr::Value>) -> Via {
         let label = sym_or_str(inner[0].clone());
 
         match label.as_str() {
-            "at" => via.at = (inner[1].as_f64().unwrap() as f32, inner[2].as_f64().unwrap() as f32),
+            "at" => {
+                via.at = (
+                    inner[1].as_f64().unwrap() as f32,
+                    inner[2].as_f64().unwrap() as f32,
+                )
+            }
             "size" => via.size = inner[1].as_f64().unwrap() as f32,
             "drill" => via.drill = inner[1].as_f64().unwrap() as f32,
-            "layers" => for l in inner[1..].iter() {
-                via.layers.push(sym_or_str(l.clone()));
-            },
+            "layers" => {
+                for l in inner[1..].iter() {
+                    via.layers.push(sym_or_str(l.clone()));
+                }
+            }
             "net" => via.net = inner[1].as_u64().unwrap() as u32,
             _ => println!("unknown cons in net_class: {}", label),
         }
@@ -454,7 +490,7 @@ fn parse_via(v: Vec<lexpr::Value>) -> Via {
 
 fn parse_pts(v: Vec<lexpr::Value>) -> Vec<Point> {
     let mut points = Vec::new();
-    
+
     for value in v {
         // first value is a symbol
         if value.is_symbol() {
@@ -471,4 +507,283 @@ fn parse_pts(v: Vec<lexpr::Value>) -> Vec<Point> {
     }
 
     points
+}
+
+fn parse_gr_text(v: Vec<lexpr::Value>) -> GrText {
+    let mut grt = GrText::default();
+
+    for elem in v.iter() {
+        if !elem.is_cons() {
+            continue;
+        }
+
+        let ev = elem.to_vec().unwrap();
+        let label = sym_or_str(ev[0].clone());
+
+        match label.as_str() {
+            "at" => grt.at = parse_at(ev),
+            "layer" => grt.layer = sym_or_str(ev[1].clone()),
+            "effects" => grt.effects = parse_effects(ev),
+            _ => println!("unknown cons in gr_text: {}", label),
+        }
+    }
+
+    grt
+}
+
+fn parse_gr_circle(v: Vec<lexpr::Value>) -> GrCircle {
+    let mut grc = GrCircle::default();
+
+    for elem in v.iter() {
+        if !elem.is_cons() {
+            continue;
+        }
+
+        let ev = elem.to_vec().unwrap();
+        let label = sym_or_str(ev[0].clone());
+
+        match label.as_str() {
+            "center" => {
+                grc.center = (
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
+                )
+            }
+            "end" => {
+                grc.end = (
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
+                )
+            }
+            "layer" => grc.layer = sym_or_str(ev[1].clone()),
+            "width" => grc.width = ev[1].as_f64().unwrap() as f32,
+            "tstamp" => grc.tstamp = ev[1].as_u64().unwrap() as u32,
+            _ => println!("unknown cons in gr_circle: {}", label),
+        }
+    }
+
+    grc
+}
+
+fn parse_gr_line(v: Vec<lexpr::Value>) -> GrLine {
+    let mut grl = GrLine::default();
+
+    for elem in v.iter() {
+        if !elem.is_cons() {
+            continue;
+        }
+
+        let ev = elem.to_vec().unwrap();
+        let label = sym_or_str(ev[0].clone());
+
+        match label.as_str() {
+            "start" => {
+                grl.start = (
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
+                )
+            }
+            "end" => {
+                grl.end = (
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
+                )
+            }
+            "layer" => grl.layer = sym_or_str(ev[1].clone()),
+            "width" => grl.width = ev[1].as_f64().unwrap() as f32,
+            "tstamp" => grl.tstamp = ev[1].as_u64().unwrap() as u32,
+            _ => println!("unknown cons in gr_line: {}", label),
+        }
+    }
+
+    grl
+}
+
+fn parse_gr_arc(v: Vec<lexpr::Value>) -> GrArc {
+    let mut gra = GrArc::default();
+
+    for elem in v.iter() {
+        if !elem.is_cons() {
+            continue;
+        }
+
+        let ev = elem.to_vec().unwrap();
+        let label = sym_or_str(ev[0].clone());
+
+        match label.as_str() {
+            "start" => {
+                gra.start = (
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
+                )
+            }
+            "end" => {
+                gra.end = (
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
+                )
+            }
+            "angle" => gra.angle = ev[1].as_f64().unwrap() as f32,
+            "layer" => gra.layer = sym_or_str(ev[1].clone()),
+            "width" => gra.width = ev[1].as_f64().unwrap() as f32,
+            "tstamp" => gra.tstamp = ev[1].as_u64().unwrap() as u32,
+            _ => println!("unknown cons in gr_circle: {}", label),
+        }
+    }
+
+    gra
+}
+
+fn parse_effects(v: Vec<lexpr::Value>) -> Effects {
+    let mut eff = Effects::default();
+
+    for elem in v.iter() {
+        if elem.is_symbol() {
+            continue;
+        }
+        let ev = elem.to_vec().unwrap();
+        let label = ev[0].as_symbol().unwrap();
+
+        match label {
+            "font" => eff.font = parse_font(ev),
+            _ => println!("unknown cons in effects: {}", label),
+        }
+    }
+
+    eff
+}
+
+fn parse_font(v: Vec<lexpr::Value>) -> Font {
+    let mut fnt = Font::default();
+
+    for elem in v.iter() {
+        if elem.is_symbol() {
+            continue;
+        }
+        let ev = elem.to_vec().unwrap();
+        let label = ev[0].as_symbol().unwrap();
+
+        match label {
+            "size" => {
+                fnt.size = (
+                    ev[1].as_f64().unwrap() as f32,
+                    ev[2].as_f64().unwrap() as f32,
+                )
+            }
+            "thickness" => fnt.thickness = ev[1].as_f64().unwrap() as f32,
+            _ => println!("unknown cons in font: {}", label),
+        }
+    }
+
+    fnt
+}
+
+fn parse_dimension(v: Vec<lexpr::Value>) -> Dimension {
+    let mut dim = Dimension::default();
+
+    for elem in v.iter() {
+        if elem.is_symbol() {
+            continue;
+        } else if elem.is_number() {
+            dim.num = elem.as_u64().unwrap() as u32
+        } else {
+            let ev = elem.to_vec().unwrap();
+            let label = ev[0].as_symbol().unwrap();
+
+            match label {
+                "width" => dim.width = ev[1].as_f64().unwrap() as f32,
+                "layer" => dim.layer = sym_or_str(ev[1].clone()),
+                "gr_text" => dim.text = parse_gr_text(ev),
+                "feature1" => dim.feature1 = parse_pts(ev[1].to_vec().unwrap()),
+                "feature2" => dim.feature2 = parse_pts(ev[1].to_vec().unwrap()),
+                "crossbar" => dim.crossbar = parse_pts(ev[1].to_vec().unwrap()),
+                "arrow1a" => dim.arrow1a = parse_pts(ev[1].to_vec().unwrap()),
+                "arrow1b" => dim.arrow1b = parse_pts(ev[1].to_vec().unwrap()),
+                "arrow2a" => dim.arrow1a = parse_pts(ev[1].to_vec().unwrap()),
+                "arrow2b" => dim.arrow1b = parse_pts(ev[1].to_vec().unwrap()),
+                _ => println!("unknown cons in dimension: {}", label),
+            }
+        }
+    }
+
+    dim
+}
+
+fn parse_zone(v: Vec<lexpr::Value>) -> Zone {
+    let mut zone = Zone::default();
+
+    for elem in v.iter() {
+        if elem.is_symbol() {
+            continue;
+        }
+        let ev = elem.to_vec().unwrap();
+        let label = sym_or_str(ev[0].clone());
+
+        match label.as_str() {
+            "net" => zone.net = ev[1].as_u64().unwrap() as u32,
+            "net_name" => zone.net_name = sym_or_str(ev[1].clone()),
+            "layer" => zone.layer = sym_or_str(ev[1].clone()),
+            "tstamp" => zone.tstamp = ev[1].as_u64().unwrap() as u32,
+            "hatch" => {
+                zone.hatch = (
+                    ev[1].as_symbol().unwrap().to_string(),
+                    ev[2].as_f64().unwrap() as f32,
+                );
+            }
+            "priority" => zone.priority = ev[1].as_u64().unwrap() as u8,
+            "connect_pads" => zone.connect_pads = parse_connect_pads(ev),
+            "min_thickness" => zone.min_thickness = ev[1].as_f64().unwrap() as f32,
+            "fill" => zone.fill = parse_fill(ev),
+            "polygon" => zone.polygons.push(Polygon {
+                filled: false,
+                points: parse_pts(ev[1].to_vec().unwrap()),
+            }),
+            "filled_polygon" => zone.polygons.push(Polygon {
+                filled: false,
+                points: parse_pts(ev[1].to_vec().unwrap()),
+            }),
+            _ => println!("unknown cons in dimension: {}", label),
+        }
+    }
+
+    zone
+}
+
+fn parse_connect_pads(v: Vec<lexpr::Value>) -> (String, f32) {
+    let s = sym_or_str(v[1].clone());
+    if s.as_str() == "yes" {
+        let clearance = v[2].to_vec().unwrap()[1].as_f64().unwrap() as f32;
+        return (s, clearance);
+    }
+
+    (String::from("no"), 0.0)
+}
+
+fn parse_fill(v: Vec<lexpr::Value>) -> ZoneFill {
+    let mut fill = ZoneFill::default();
+
+    for elem in v.iter() {
+        if elem.is_symbol() {
+            fill.do_fill = if elem.as_symbol().unwrap() == "yes" {
+                true
+            } else {
+                false
+            };
+            continue;
+        };
+
+        let ev = elem.to_vec().unwrap();
+        let label = sym_or_str(ev[0].clone());
+
+        match label.as_str() {
+            "arc_segments" => fill.arc_segments = ev[1].as_u64().unwrap() as u8,
+            "thermal_gap" => fill.thermal_gap = ev[1].as_f64().unwrap() as f32,
+            "thermal_bridge_width" => fill.thermal_bridge_width = ev[1].as_f64().unwrap() as f32,
+            "smoothing" => fill.smoothing = ev[1].as_symbol().unwrap().to_string(),
+            "radius" => fill.radius = ev[1].as_f64().unwrap() as f32,
+            _ => println!("unknown cons in gr_line: {}", label),
+        }
+    }
+
+    fill
 }
