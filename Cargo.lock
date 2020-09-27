@@ -11,13 +11,12 @@ name = "kiparse-rs"
 version = "0.1.0"
 dependencies = [
  "lexpr",
- "serde",
- "serde-lexpr",
 ]
 
 [[package]]
 name = "lexpr"
 version = "0.2.5"
+source = "git+https://github.com/tachiniererin/lexpr-rs?branch=kicad_pcb-sexp#778b67b2d5d5a0c1078ae7edda5bf773c8da4abb"
 dependencies = [
  "itoa",
  "lexpr-macros",
@@ -28,6 +27,7 @@ dependencies = [
 [[package]]
 name = "lexpr-macros"
 version = "0.2.1"
+source = "git+https://github.com/tachiniererin/lexpr-rs?branch=kicad_pcb-sexp#778b67b2d5d5a0c1078ae7edda5bf773c8da4abb"
 dependencies = [
  "proc-macro-hack",
  "proc-macro2",
@@ -63,45 +63,6 @@ name = "ryu"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71d301d4193d031abdd79ff7e3dd721168a9572ef3fe51a1517aba235bd8f86e"
-
-[[package]]
-name = "serde"
-version = "1.0.116"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96fe57af81d28386a513cbc6858332abc6117cfdb5999647c6444b8f43a370a5"
-dependencies = [
- "serde_derive",
-]
-
-[[package]]
-name = "serde-lexpr"
-version = "0.1.1"
-dependencies = [
- "lexpr",
- "serde",
-]
-
-[[package]]
-name = "serde_derive"
-version = "1.0.116"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f630a6370fd8e457873b4bd2ffdae75408bc291ba72be773772a4c2a065d9ae8"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "syn"
-version = "1.0.41"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6690e3e9f692504b941dc6c3b188fd28df054f7fb8469ab40680df52fdcc842b"
-dependencies = [
- "proc-macro2",
- "quote",
- "unicode-xid",
-]
 
 [[package]]
 name = "unicode-xid"

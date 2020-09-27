@@ -7,6 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lexpr = {path = "crates/lexpr-rs/lexpr", version = "0.2.5"}
-serde = {version = "1.0.116", features = ["derive"]}
-serde-lexpr = {path = "crates/lexpr-rs/serde-lexpr", version = "0.1.0"}
+lexpr = {version = "0.2.5"}
+
+[patch.crates-io]
+lexpr = { git = 'https://github.com/tachiniererin/lexpr-rs', branch = 'kicad_pcb-sexp' }
