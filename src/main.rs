@@ -105,6 +105,17 @@ struct FootprintCircle {
 }
 
 #[derive(Debug, Default, Clone)]
+struct PadOptions {
+    clearance: String,
+    anchor: String,
+}
+
+#[derive(Debug, Default, Clone)]
+struct PadPrimitives {
+    gr_poly: GrPoly,
+}
+
+#[derive(Debug, Default, Clone)]
 struct Pad {
     num: String,      // can be int or string (e.g. for BGAs)
     pad_type: String, // smd, thr, tht
@@ -117,6 +128,8 @@ struct Pad {
     drill: f32,
     drill_oval: (f32, f32),
     zone_connect: u8,
+    options: PadOptions,
+    primitives: PadPrimitives,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -185,6 +198,12 @@ struct GrLine {
 }
 
 #[derive(Debug, Default, Clone)]
+struct GrPoly {
+    points: Vec<Point>,
+    width: f32,
+}
+
+#[derive(Debug, Default, Clone)]
 struct Segment {
     start: (f32, f32),
     end: (f32, f32),
@@ -243,6 +262,13 @@ struct ZoneFill {
 }
 
 #[derive(Debug, Default, Clone)]
+struct Keepout {
+    tracks: String,
+    vias: String,
+    copperpour: String,
+}
+
+#[derive(Debug, Default, Clone)]
 struct Zone {
     net: u32,
     net_name: String,
@@ -254,6 +280,7 @@ struct Zone {
     min_thickness: f32,
     fill: ZoneFill,
     polygons: Vec<Polygon>,
+    keepout: Keepout,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -281,7 +308,7 @@ fn main() {
     println!("reading test pcb...");
 
     let contents =
-        fs::read_to_string("ferret.kicad_pcb").expect("Something went wrong reading the file");
+        fs::read_to_string("prova.kicad_pcb").expect("Something went wrong reading the file");
 
     let results = lexpr::from_str_custom(&contents, Options::kicad()).unwrap();
 
@@ -621,6 +648,33 @@ fn parse_gr_circle(v: Vec<lexpr::Value>) -> GrCircle {
     grc
 }
 
+fn parse_gr_poly(v: Vec<lexpr::Value>) -> GrPoly {
+    let mut grp = GrPoly::default();
+
+    for elem in v.iter() {
+        if !elem.is_cons() {
+            continue;
+        }
+
+        let mut ev = elem.to_vec().unwrap();
+
+        // TODO: fix tstamp handling in lexpr
+        if ev[0].is_cons() {
+            ev = ev[0].to_vec().unwrap()
+        }
+
+        let label = ev[0].to_string();
+
+        match label.as_str() {
+            "pts" => grp.points = parse_pts(ev),
+            "width" => grp.width = ev[1].as_f64().unwrap() as f32,
+            _ => println!("unknown cons in gr_poly: {} {:#?}", label, elem),
+        }
+    }
+
+    grp
+}
+
 fn parse_gr_line(v: Vec<lexpr::Value>) -> GrLine {
     let mut grl = GrLine::default();
 
@@ -778,6 +832,27 @@ fn parse_dimension(v: Vec<lexpr::Value>) -> Dimension {
     dim
 }
 
+fn parse_keepout(v: Vec<lexpr::Value>) -> Keepout {
+    let mut k = Keepout::default();
+
+    for elem in v.iter() {
+        if elem.is_symbol() {
+            continue;
+        }
+        let ev = elem.to_vec().unwrap();
+        let label = ev[0].to_string();
+
+        match label.as_str() {
+            "tracks" => k.tracks = sym_or_str(elem.get(1)),
+            "vias" => k.vias = sym_or_str(elem.get(1)),
+            "copperpour" => k.copperpour = sym_or_str(elem.get(1)),
+            _ => println!("unknown cons in dimension: {:#?}", elem),
+        }
+    }
+
+    k
+}
+
 fn parse_zone(v: Vec<lexpr::Value>) -> Zone {
     let mut zone = Zone::default();
 
@@ -822,6 +897,7 @@ fn parse_zone(v: Vec<lexpr::Value>) -> Zone {
                 filled: false,
                 points: parse_pts(ev[1].to_vec().unwrap()),
             }),
+            "keepout" => zone.keepout = parse_keepout(ev),
             _ => println!("unknown cons in zone: {} {:#?}", label, elem),
         }
     }
@@ -1036,6 +1112,45 @@ fn parse_model(v: Vec<lexpr::Value>) -> Model {
     model
 }
 
+fn parse_pad_options(v: Vec<lexpr::Value>) -> PadOptions {
+    let mut po = PadOptions::default();
+
+    for elem in v.iter() {
+        if elem.is_symbol() {
+            continue;
+        }
+        let ev = elem.to_vec().unwrap();
+        let label = ev[0].to_string();
+
+        match label.as_str() {
+            "clearance" => po.clearance = sym_or_str(elem.get(1)),
+            "anchor" => po.anchor = sym_or_str(elem.get(1)),
+            _ => println!("unknown cons in pad_options: {:#?}", elem),
+        }
+    }
+
+    po
+}
+
+fn parse_pad_primitives(v: Vec<lexpr::Value>) -> PadPrimitives {
+    let mut pp = PadPrimitives::default();
+
+    for elem in v.iter() {
+        if elem.is_symbol() {
+            continue;
+        }
+        let ev = elem.to_vec().unwrap();
+        let label = ev[0].to_string();
+
+        match label.as_str() {
+            "gr_poly" => pp.gr_poly = parse_gr_poly(ev),
+            _ => println!("unknown cons in pad_options: {:#?}", elem),
+        }
+    }
+
+    pp
+}
+
 fn parse_pad(v: Vec<lexpr::Value>) -> Pad {
     let mut pad = Pad::default();
 
@@ -1070,6 +1185,8 @@ fn parse_pad(v: Vec<lexpr::Value>) -> Pad {
             "net" => pad.net = parse_net(ev),
             "roundrect_rratio" => pad.roundrect_rratio = ev[1].as_f64().unwrap() as f32,
             "zone_connect" => pad.zone_connect = ev[1].as_u64().unwrap() as u8,
+            "options" => pad.options = parse_pad_options(ev),
+            "primitives" => pad.primitives = parse_pad_primitives(ev),
             _ => println!("unknown cons in pad: {:#?}", elem),
         }
     }
