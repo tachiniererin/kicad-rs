@@ -24,7 +24,7 @@ struct Layer {
     num: u32,
     name: String,
     typ: String,
-    hidden: bool,
+    param4: String, // this changed in KiCad 6, but there's no documentation yet
 }
 
 #[derive(Debug, Default, Clone)]
@@ -131,8 +131,8 @@ struct Model {
 struct Module {
     name: String,
     layer: String,
-    tedit: u32,
-    tstamp: u32,
+    tedit: String,
+    tstamp: String,
     at: Vec<f32>,
     descr: String,
     tags: String,
@@ -153,7 +153,7 @@ struct GrText {
     at: Vec<f32>,
     layer: String,
     effects: Effects,
-    tstamp: u32,
+    tstamp: String,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -162,7 +162,7 @@ struct GrCircle {
     end: (f32, f32),
     layer: String,
     width: f32,
-    tstamp: u32,
+    tstamp: String,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -172,7 +172,7 @@ struct GrArc {
     angle: f32,
     layer: String,
     width: f32,
-    tstamp: u32,
+    tstamp: String,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -181,7 +181,7 @@ struct GrLine {
     end: (f32, f32),
     layer: String,
     width: f32,
-    tstamp: u32,
+    tstamp: String,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -191,7 +191,7 @@ struct Segment {
     layer: String,
     width: f32,
     net: u32,
-    tstamp: u32,
+    tstamp: String,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -201,7 +201,7 @@ struct Via {
     drill: f32,
     layers: Vec<String>,
     net: u32,
-    tstamp: u32,
+    tstamp: String,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -247,7 +247,7 @@ struct Zone {
     net: u32,
     net_name: String,
     layers: Vec<String>,
-    tstamp: u32,
+    tstamp: String,
     priority: u8,
     hatch: (String, f32),
     connect_pads: (String, f32), // TODO: fix this
@@ -362,18 +362,10 @@ fn parse_layers(v: Vec<lexpr::Value>) -> Vec<Layer> {
         let mut l = Layer::default();
 
         l.num = p[0].as_u64().unwrap() as u32;
-        l.name = p[1].as_symbol().unwrap().to_string();
-        l.typ = p[2].as_symbol().unwrap().to_string();
+        l.name = sym_or_str(value.get(1));
+        l.typ = sym_or_str(value.get(2));
         if p.len() == 4 {
-            let hidden = p[3].as_symbol().unwrap();
-            if hidden == "hide" {
-                l.hidden = true
-            } else {
-                println!(
-                    "while parsing layer definitions: got {} instead of hide",
-                    hidden
-                )
-            }
+            l.param4 = sym_or_str(value.get(3));
         }
 
         layers.push(l);
@@ -490,7 +482,7 @@ fn parse_segment(v: Vec<lexpr::Value>) -> Segment {
             "width" => seg.width = ev[1].as_f64().unwrap() as f32,
             "layer" => seg.layer = sym_or_str(ev.get(1)),
             "net" => seg.net = ev[1].as_u64().unwrap() as u32,
-            "tstamp" => seg.tstamp = ev[1].as_u64().unwrap() as u32,
+            "tstamp" => seg.tstamp = sym_or_str(value.get(1)),
             _ => println!("unknown cons in segment: {:#?}", value),
         }
     }
@@ -530,7 +522,7 @@ fn parse_via(v: Vec<lexpr::Value>) -> Via {
                 }
             }
             "net" => via.net = ev[1].as_u64().unwrap() as u32,
-            "tstamp" => via.tstamp = ev[1].as_u64().unwrap() as u32,
+            "tstamp" => via.tstamp = sym_or_str(value.get(1)),
             _ => println!("unknown cons in via: {:#?}", value),
         }
     }
@@ -581,7 +573,7 @@ fn parse_gr_text(v: Vec<lexpr::Value>) -> GrText {
             "at" => grt.at = parse_vecf(ev),
             "layer" => grt.layer = sym_or_str(elem.get(1)),
             "effects" => grt.effects = parse_effects(ev),
-            "tstamp" => grt.tstamp = ev[1].as_u64().unwrap() as u32,
+            "tstamp" => grt.tstamp = sym_or_str(elem.get(1)),
             _ => println!("unknown cons in gr_text: {:#?}", elem),
         }
     }
@@ -621,7 +613,7 @@ fn parse_gr_circle(v: Vec<lexpr::Value>) -> GrCircle {
             }
             "layer" => grc.layer = sym_or_str(elem.get(1)),
             "width" => grc.width = ev[1].as_f64().unwrap() as f32,
-            "tstamp" => grc.tstamp = ev[1].as_u64().unwrap() as u32,
+            "tstamp" => grc.tstamp = sym_or_str(elem.get(1)),
             _ => println!("unknown cons in gr_circle: {} {:#?}", label, elem),
         }
     }
@@ -661,7 +653,7 @@ fn parse_gr_line(v: Vec<lexpr::Value>) -> GrLine {
             }
             "layer" => grl.layer = sym_or_str(elem.get(1)),
             "width" => grl.width = ev[1].as_f64().unwrap() as f32,
-            "tstamp" => grl.tstamp = ev[1].as_u64().unwrap() as u32,
+            "tstamp" => grl.tstamp = sym_or_str(elem.get(1)),
             _ => println!("unknown cons in gr_line: {:#?}", elem),
         }
     }
@@ -702,7 +694,7 @@ fn parse_gr_arc(v: Vec<lexpr::Value>) -> GrArc {
             "angle" => gra.angle = ev[1].as_f64().unwrap() as f32,
             "layer" => gra.layer = sym_or_str(elem.get(1)),
             "width" => gra.width = ev[1].as_f64().unwrap() as f32,
-            "tstamp" => gra.tstamp = ev[1].as_u64().unwrap() as u32,
+            "tstamp" => gra.tstamp = sym_or_str(elem.get(1)),
             _ => println!("unknown cons in gr_arc: {:#?}", elem),
         }
     }
@@ -811,7 +803,7 @@ fn parse_zone(v: Vec<lexpr::Value>) -> Zone {
                     zone.layers.push(l.to_string())
                 }
             }
-            "tstamp" => zone.tstamp = ev[1].as_u64().unwrap() as u32,
+            "tstamp" => zone.tstamp = sym_or_str(elem.get(1)),
             "hatch" => {
                 zone.hatch = (
                     ev[1].as_symbol().unwrap().to_string(),
@@ -1105,8 +1097,8 @@ fn parse_module(v: Vec<lexpr::Value>) -> Module {
 
         match label.as_str() {
             "layer" => module.layer = sym_or_str(elem.get(1)),
-            "tstamp" => module.tstamp = ev[1].as_u64().unwrap() as u32,
-            "tedit" => module.tedit = ev[1].as_u64().unwrap() as u32,
+            "tstamp" => module.tstamp = sym_or_str(elem.get(1)),
+            "tedit" => module.tedit = sym_or_str(elem.get(1)),
             "at" => module.at = parse_vecf(ev),
             "descr" => module.layer = sym_or_str(elem.get(1)),
             "tags" => module.tags = sym_or_str(elem.get(1)),
